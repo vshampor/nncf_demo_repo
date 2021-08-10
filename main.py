@@ -34,6 +34,10 @@ from pipeline_utils.optimizer import make_optimizer
 from unet import UNet
 from unet import center_crop
 
+from nncf import NNCFConfig
+from nncf.torch import create_compressed_model
+from nncf.torch import register_default_init_args
+
 DEVICE = 'cuda:0'
 RESULT_DIR = Path('results')
 
@@ -300,10 +304,15 @@ def main(argv):
 
     loaders, w_class = load_dataset(dataset, args.dataset_dir, args.batch_size, logger)
     train_loader, val_loader, init_loader = loaders
+
+    nncf_config = NNCFConfig.from_json(args.nncf_config)
+    register_default_init_args(nncf_config, train_loader)
+    compression_ctrl, model = create_compressed_model(model, nncf_config)
+
     criterion = functools.partial(loss_funcs.cross_entropy, weight=w_class.to(DEVICE))
 
     if 'export' in args.mode and ('train' not in args.mode and 'test' not in args.mode):
-        torch.onnx.export(model, torch.zeros([1, 3, 368, 480]).to(DEVICE), args.to_onnx)
+        compression_ctrl.export_model(args.to_onnx)
         logger.info("Saved to {}".format(args.to_onnx))
         return
 
@@ -315,7 +324,7 @@ def main(argv):
         test(model, val_loader, criterion, dataset.color_encoding)
 
     if 'export' in args.mode:
-        torch.onnx.export(model, torch.zeros([1, 3, 368, 480]).to(DEVICE), args.to_onnx)
+        compression_ctrl.export_model(args.to_onnx)
         logger.info("Saved to {}".format(args.to_onnx))
 
 
